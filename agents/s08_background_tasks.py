@@ -187,13 +187,29 @@ TOOLS = [
 
 def agent_loop(messages: list):
     while True:
-        # Drain background notifications and inject as system message before LLM call
+        # Drain background notifications and inject before the next LLM call.
+        # Merge into the trailing user message when possible to avoid emitting
+        # two consecutive user messages (which is messy for caching/debugging).
         notifs = BG.drain_notifications()
         if notifs and messages:
             notif_text = "\n".join(
                 f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
             )
-            messages.append({"role": "user", "content": f"<background-results>\n{notif_text}\n</background-results>"})
+            bg_block = {
+                "type": "text",
+                "text": f"<background-results>\n{notif_text}\n</background-results>",
+            }
+            last = messages[-1]
+            if last["role"] == "user":
+                if isinstance(last["content"], str):
+                    last["content"] = [
+                        {"type": "text", "text": last["content"]},
+                        bg_block,
+                    ]
+                else:
+                    last["content"] = list(last["content"]) + [bg_block]
+            else:
+                messages.append({"role": "user", "content": [bg_block]})
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
