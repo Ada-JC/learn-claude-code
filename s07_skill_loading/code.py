@@ -119,11 +119,23 @@ def safe_path(p: str) -> Path:
         raise ValueError(f"Path escapes workspace: {p}")
     return path
 
+# s07: Fix Windows subprocess encoding crash (fallback UTF-8 -> GBK with error replacement)
+def safe_decode(data: bytes) -> str:
+    if not data:
+        return ""
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        return data.decode('gbk')
+
+
 def run_bash(command: str) -> str:
     try:
         r = subprocess.run(command, shell=True, cwd=WORKDIR,
-                           capture_output=True, text=True, timeout=120)
-        out = (r.stdout + r.stderr).strip()
+                           capture_output=True, timeout=120)
+        stdout = safe_decode(r.stdout)
+        stderr = safe_decode(r.stderr)
+        out = (stdout + stderr).strip()
         return out[:50000] if out else "(no output)"
     except subprocess.TimeoutExpired:
         return "Error: Timeout (120s)"
