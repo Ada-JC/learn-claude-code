@@ -185,31 +185,42 @@ TOOLS = [
 ]
 
 
+def append_user_notice(messages: list, text: str) -> None:
+    """Add an async notice without creating adjacent user messages."""
+    block = {"type": "text", "text": text}
+    if messages and messages[-1].get("role") == "user":
+        content = messages[-1].get("content", "")
+        if isinstance(content, list):
+            messages[-1]["content"] = [*content, block]
+        else:
+            messages[-1]["content"] = [
+                {"type": "text", "text": str(content)},
+                block,
+            ]
+        return
+    messages.append({"role": "user", "content": [block]})
+
+
+def inject_background_notifications(messages: list) -> int:
+    notifs = BG.drain_notifications()
+    if not notifs or not messages:
+        return 0
+    notif_text = "\n".join(
+        f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
+    )
+    append_user_notice(
+        messages,
+        f"<background-results>\n{notif_text}\n</background-results>",
+    )
+    return len(notifs)
+
+
 def agent_loop(messages: list):
     while True:
         # Drain background notifications and inject before the next LLM call.
         # Merge into the trailing user message when possible to avoid emitting
         # two consecutive user messages (which is messy for caching/debugging).
-        notifs = BG.drain_notifications()
-        if notifs and messages:
-            notif_text = "\n".join(
-                f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
-            )
-            bg_block = {
-                "type": "text",
-                "text": f"<background-results>\n{notif_text}\n</background-results>",
-            }
-            last = messages[-1]
-            if last["role"] == "user":
-                if isinstance(last["content"], str):
-                    last["content"] = [
-                        {"type": "text", "text": last["content"]},
-                        bg_block,
-                    ]
-                else:
-                    last["content"] = list(last["content"]) + [bg_block]
-            else:
-                messages.append({"role": "user", "content": [bg_block]})
+        inject_background_notifications(messages)
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
