@@ -364,7 +364,7 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input("\033[36ms07 >> \033[0m")
+            query = input("\001\033[36m\002s07 >> \001\033[0m\002")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
