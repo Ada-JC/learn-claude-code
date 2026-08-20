@@ -117,7 +117,7 @@ messages = [*messages[:head_end], marker, *messages[tail_start:]]
 
 ## ステップ 3：micro_compact
 
-`micro_compact` は直近の assistant 応答より後に追加されたすべての `tool_result` を完全に保持し、モデルが各結果を少なくとも 1 回は完全な形で読めるようにします。モデルがすでに読んだ結果については最新 3 件を残し、それより古く 120 文字を超える結果を短くします。保存済みの結果にはファイルパスを残し、それ以外はプレースホルダーに置き換えます。
+最初の 2 ステップの後、`prepare` は残りのコンテキストサイズを推定し、`CONTEXT_CHAR_LIMIT` を超えている場合にだけ `micro_compact` を実行します。`micro_compact` は直近の assistant 応答より後に追加されたすべての `tool_result` を完全に保持し、モデルが各結果を少なくとも 1 回は完全な形で読めるようにします。モデルがすでに読んだ結果については最新 3 件を残し、それより古く 120 文字を超える結果を短くします。保存済みの結果にはファイルパスを残し、それ以外はプレースホルダーに置き換えます。
 
 ![古い結果を置き換える](images/micro-compact.ja.svg)
 
@@ -142,12 +142,12 @@ for _, _, block in consumed[:-self.KEEP_RECENT_RESULTS]:
 
 保存していない古い結果にはプレースホルダーだけが残ります。ステップ 1 で保存した結果には、完全な出力を読み直すためのパスが残ります。
 
-最初の 3 ステップは、決定的なテキスト処理と構造操作です。追加の API 呼び出しは発生しません。
+最初の 2 ステップは毎ラウンド実行され、ステップ 3 はコンテキストが上限を超えた場合にだけ実行されます。3 ステップとも決定的なテキスト処理と構造操作であり、追加の API 呼び出しは発生しません。
 
 
 ## ステップ 4：compact_history
 
-最初の 3 ステップの後、コードは `estimate_chars(messages)` で現在のメッセージに含まれる文字数を数えます。
+`micro_compact` の後、コードは `estimate_chars(messages)` でコンテキストを再び推定します。
 
 ```python
 CONTEXT_CHAR_LIMIT = 50000
@@ -156,7 +156,7 @@ def estimate_chars(messages):
     return len(json.dumps(messages, default=str, ensure_ascii=False))
 ```
 
-文字数が `CONTEXT_CHAR_LIMIT` を超えると、`compact_history` は 4 つの処理を行います。
+文字数がまだ `CONTEXT_CHAR_LIMIT` を超えている場合、`compact_history` は 4 つの処理を行います。
 
 1. 完全なメッセージ履歴を `.transcripts/` に書き込みます。
 2. モデルに事実だけの状態要約を依頼します。
@@ -181,18 +181,20 @@ def compact_history(messages, active_request):
 
 ## 順序を固定する理由
 
-パイプラインは常に次の順序で実行されます。
+パイプラインは次の順序で処理し、必要な場合にだけ情報を失う圧縮へ進みます。
 
-```text
-tool_result_budget
-    → snip_compact
-    → micro_compact
-    → compact_history（上限を超えた場合）
+```python
+messages = self.tool_result_budget(messages)
+messages = self.snip_compact(messages)
+if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+    messages = self.micro_compact(messages)
+    if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+        messages = self.compact_history(messages, active_request)
 ```
 
 この順序には 2 つの条件があります。
 
-1. 最初の 3 ステップはモデルを呼び出しません。ステップ 4 だけが API リクエストを追加します。
+1. ステップ 1 と 2 は毎ラウンド実行され、ステップ 3 は上限を超えた場合だけ実行されます。API リクエストを追加するのはステップ 4 だけです。
 2. `tool_result_budget` は `micro_compact` より先に動く必要があります。古い結果をプレースホルダーにする前に、大きな結果をディスクへ保存します。
 
 各ラウンドは、コストが低く情報を再取得しやすい処理から始まります。
@@ -243,7 +245,7 @@ def agent_loop(messages, active_request):
             raise
 ```
 
-すべてのモデル呼び出しが同じパイプラインを通ります。CLI は `query` を追加した後に `agent_loop(history, query)` を呼ぶため、圧縮を繰り返しても現在の要求は失われません。最初の 3 ステップ後も上限を超える場合、または API が拒否した場合にだけ、コードはモデルへ要約を依頼します。
+すべてのモデル呼び出しが同じパイプラインを通ります。CLI は `query` を追加した後に `agent_loop(history, query)` を呼ぶため、圧縮を繰り返しても現在の要求は失われません。`micro_compact` の後も上限を超える場合、または API が拒否した場合にだけ、コードはモデルへ要約を依頼します。
 
 
 ## compact ツール

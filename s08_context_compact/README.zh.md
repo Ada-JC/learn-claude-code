@@ -117,7 +117,7 @@ messages = [*messages[:head_end], marker, *messages[tail_start:]]
 
 ## 第三步：micro_compact
 
-`micro_compact` 会完整保留最近一次 assistant 响应之后新增的所有 `tool_result`，确保模型至少完整读取每条新结果一次。对于模型已经读取过的结果，它保留最近 3 条，并缩短其余超过 120 个字符的旧结果。已经转存的结果保留文件路径，其他结果只留下占位符：
+前两步完成后，`prepare` 会估算剩余上下文的大小，只有超过 `CONTEXT_CHAR_LIMIT` 时才执行 `micro_compact`。`micro_compact` 会完整保留最近一次 assistant 响应之后新增的所有 `tool_result`，确保模型至少完整读取每条新结果一次。对于模型已经读取过的结果，它保留最近 3 条，并缩短其余超过 120 个字符的旧结果。已经转存的结果保留文件路径，其他结果只留下占位符：
 
 ![旧结果替换为占位符](images/micro-compact.svg)
 
@@ -142,12 +142,12 @@ for _, _, block in consumed[:-self.KEEP_RECENT_RESULTS]:
 
 未转存的旧结果只保留占位符。第一步保存过的完整结果仍能通过路径读取，不会在第三步丢失位置。
 
-前三步都是确定性的结构和文本操作，不产生额外 API 调用。
+前两步每轮都会执行，第三步只在上下文超限时执行。三步都是确定性的结构和文本操作，不产生额外 API 调用。
 
 
 ## 第四步：compact_history
 
-前三步执行后，代码用 `estimate_chars(messages)` 计算当前消息的字符数：
+`micro_compact` 执行后，代码会再次用 `estimate_chars(messages)` 估算上下文：
 
 ```python
 CONTEXT_CHAR_LIMIT = 50000
@@ -156,7 +156,7 @@ def estimate_chars(messages):
     return len(json.dumps(messages, default=str, ensure_ascii=False))
 ```
 
-字符数超过 `CONTEXT_CHAR_LIMIT` 时，`compact_history` 完成四件事：
+字符数仍然超过 `CONTEXT_CHAR_LIMIT` 时，`compact_history` 完成四件事：
 
 1. 将完整消息历史写入 `.transcripts/`。
 2. 请求模型生成只包含事实的状态摘要。
@@ -181,18 +181,20 @@ def compact_history(messages, active_request):
 
 ## 为什么顺序固定
 
-四步管线的执行顺序是：
+管线按以下顺序执行，并且只在必要时进入有损压缩步骤：
 
-```text
-tool_result_budget
-    → snip_compact
-    → micro_compact
-    → compact_history（超过阈值时）
+```python
+messages = self.tool_result_budget(messages)
+messages = self.snip_compact(messages)
+if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+    messages = self.micro_compact(messages)
+    if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+        messages = self.compact_history(messages, active_request)
 ```
 
 这个顺序同时满足两个条件：
 
-1. 前三步不调用模型，第四步才产生额外 API 请求。
+1. 第一步和第二步每轮执行，第三步只在超限时执行，只有第四步会增加 API 请求。
 2. `tool_result_budget` 必须早于 `micro_compact`。大结果先落盘，之后才允许旧结果变成占位符。
 
 顺序固定后，每一轮都从成本更低、信息更容易恢复的操作开始。
@@ -243,7 +245,7 @@ def agent_loop(messages, active_request):
             raise
 ```
 
-每次调用模型前都会经过同一条管线。CLI 在追加 `query` 后调用 `agent_loop(history, query)`，所以压缩多少次都不会丢失本轮请求。前三步处理后仍超过阈值，或者 API 明确拒绝上下文时，代码才会请求模型生成摘要。
+每次调用模型前都会经过同一条管线。CLI 在追加 `query` 后调用 `agent_loop(history, query)`，所以压缩多少次都不会丢失本轮请求。只有 `micro_compact` 处理后仍超过阈值，或者 API 明确拒绝上下文时，代码才会请求模型生成摘要。
 
 
 ## compact 工具

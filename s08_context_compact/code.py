@@ -14,15 +14,18 @@ s08_context_compact.py - Context Compact
     +--------------------+
               |
               v
-    +--------------------+
-    | micro_compact      |  shorten old tool results
-    +--------------------+
-              |
-              v
        context over limit?
           | no       | yes
-          v          v
-      model call  compact_history -> model call
+          |          v
+          |   +--------------------+
+          |   | micro_compact      |  shorten old tool results
+          |   +--------------------+
+          |          |
+          |          v
+          |   still over limit?
+          |      | no       | yes
+          v      v          v
+      model call       compact_history -> model call
 
     Other entry points:
 
@@ -116,7 +119,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 def run_glob(pattern: str) -> str:
     try:
         matches = [
-            match for match in glob.glob(pattern, root_dir=WORKDIR)
+            match for match in glob.glob(pattern, root_dir=WORKDIR, recursive=True)
             if (WORKDIR / match).resolve().is_relative_to(WORKDIR)
         ]
         return "\n".join(matches) if matches else "(no matches)"
@@ -419,10 +422,11 @@ class ContextCompactor:
     def prepare(self, messages: list, active_request: str) -> list:
         messages = self.tool_result_budget(messages)
         messages = self.snip_compact(messages)
-        messages = self.micro_compact(messages)
         if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
-            print("[auto compact]")
-            messages = self.compact_history(messages, active_request)
+            messages = self.micro_compact(messages)
+            if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+                print("[auto compact]")
+                messages = self.compact_history(messages, active_request)
         return messages
 
 

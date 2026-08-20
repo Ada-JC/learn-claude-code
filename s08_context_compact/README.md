@@ -117,7 +117,7 @@ This step controls the number of messages. Tool results inside the retained mess
 
 ## Step 3: micro_compact
 
-`micro_compact` preserves every `tool_result` added after the most recent assistant response, so the model sees each new result in full once. Among results the model has already consumed, it keeps the latest 3 and shortens older results longer than 120 characters. Persisted results keep their file path; the rest become placeholders:
+After the first two steps, `prepare` estimates the remaining context size and runs `micro_compact` only when it is above `CONTEXT_CHAR_LIMIT`. `micro_compact` preserves every `tool_result` added after the most recent assistant response, so the model sees each new result in full once. Among results the model has already consumed, it keeps the latest 3 and shortens older results longer than 120 characters. Persisted results keep their file path; the rest become placeholders:
 
 ![Replacing old results](images/micro-compact.en.svg)
 
@@ -142,12 +142,12 @@ for _, _, block in consumed[:-self.KEEP_RECENT_RESULTS]:
 
 An old result that was not persisted keeps only a placeholder. Results saved in Step 1 retain the path to their complete output.
 
-The first three steps are deterministic text and structure operations. They do not add API calls.
+The first two steps run every round. Step 3 runs only when the context is above the limit. All three are deterministic text and structure operations; they do not add API calls.
 
 
 ## Step 4: compact_history
 
-After the first three steps, the code counts the characters in the current messages with `estimate_chars(messages)`:
+After `micro_compact`, the code estimates the context again with `estimate_chars(messages)`:
 
 ```python
 CONTEXT_CHAR_LIMIT = 50000
@@ -156,7 +156,7 @@ def estimate_chars(messages):
     return len(json.dumps(messages, default=str, ensure_ascii=False))
 ```
 
-When the count exceeds `CONTEXT_CHAR_LIMIT`, `compact_history` does four things:
+When the count still exceeds `CONTEXT_CHAR_LIMIT`, `compact_history` does four things:
 
 1. Writes the complete message history to `.transcripts/`.
 2. Asks the model for a factual state summary.
@@ -181,18 +181,20 @@ This lesson uses character count as its trigger, and all related thresholds use 
 
 ## Why the Order Is Fixed
 
-The pipeline always runs in this order:
+The pipeline uses this order and only enters the lossy steps when necessary:
 
-```text
-tool_result_budget
-    → snip_compact
-    → micro_compact
-    → compact_history (only above the limit)
+```python
+messages = self.tool_result_budget(messages)
+messages = self.snip_compact(messages)
+if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+    messages = self.micro_compact(messages)
+    if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+        messages = self.compact_history(messages, active_request)
 ```
 
 This order satisfies two constraints:
 
-1. The first three steps do not call the model. Only Step 4 adds an API request.
+1. Steps 1 and 2 run every round. Step 3 runs only above the limit, and only Step 4 adds an API request.
 2. `tool_result_budget` must run before `micro_compact`. Large results need to reach disk before older results can become placeholders.
 
 Each round therefore starts with the lowest-cost operation whose information is easiest to recover.
@@ -243,7 +245,7 @@ def agent_loop(messages, active_request):
             raise
 ```
 
-Every model call enters through the same pipeline. After appending `query`, the CLI calls `agent_loop(history, query)`, so repeated compaction cannot lose the current request. The code asks for a summary only when the first three steps leave the context above the limit or when the API rejects it.
+Every model call enters through the same pipeline. After appending `query`, the CLI calls `agent_loop(history, query)`, so repeated compaction cannot lose the current request. The code asks for a summary only when `micro_compact` still leaves the context above the limit or when the API rejects it.
 
 
 ## The compact Tool
