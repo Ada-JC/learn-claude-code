@@ -102,9 +102,37 @@ def test_prepare_micro_compacts_tool_results_after_context_exceeds_limit(
         if block["type"] == "tool_result"
     ]
 
-    assert actual_results[:2] == [
-        "[Earlier tool result omitted.]",
-        "[Earlier tool result omitted.]",
-    ]
+    assert all(result.startswith("[Earlier tool result saved at ")
+               for result in actual_results[:2])
+    for index, result in enumerate(actual_results[:2]):
+        saved_path = Path(result.removeprefix(
+            "[Earlier tool result saved at ").removesuffix("]"))
+        assert saved_path.read_text() == f"result-{index}:" + "x" * 1000
     assert all(result.startswith(f"result-{index}:")
                for index, result in enumerate(actual_results[2:], start=2))
+
+
+def test_prepare_persists_oversized_unseen_result_before_full_compact(
+        tmp_path, monkeypatch):
+    lesson = load_lesson(monkeypatch, tmp_path)
+    output = "latest-result:" + "x" * 60000
+    messages = [
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "latest", "name": "read_file", "input": {}}
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "latest", "content": output}
+        ]},
+    ]
+    compactor = lesson["COMPACTOR"]
+    compactor.summarize_history = lambda _messages: (_ for _ in ()).throw(
+        AssertionError("full compaction should not run"))
+
+    prepared = compactor.prepare(messages, "inspect the result")
+    content = prepared[-1]["content"][0]["content"]
+
+    assert len(prepared) == 2
+    assert content.startswith("<persisted-output>")
+    saved_line = next(line for line in content.splitlines()
+                      if line.startswith("Full output: "))
+    assert Path(saved_line.removeprefix("Full output: ")).read_text() == output

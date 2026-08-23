@@ -88,11 +88,11 @@ for block in ranked:
 
 ## ステップ 2：snip_compact
 
-履歴が 50 メッセージを超えると、`snip_compact` は完全な履歴を `.transcripts/` に保存してから、先頭 3 件と最新 47 件を保持します。中間のマーカーには、削除した件数と transcript の保存先を記録します。
+履歴が 50 メッセージを超えると、`snip_compact` は完全な履歴を `.transcripts/` に保存してから、先頭 3 件と最新 46 件を保持します。残り 1 件は archive marker に使い、削除した件数と完全な transcript の保存先を記録します。
 
 ```python
 head_end = 3
-tail_start = len(messages) - (max_messages - head_end)
+tail_start = len(messages) - (max_messages - head_end - 1)
 
 if self.has_tool_use(messages[head_end - 1]):
     while (head_end < tail_start
@@ -117,37 +117,34 @@ messages = [*messages[:head_end], marker, *messages[tail_start:]]
 
 ## ステップ 3：micro_compact
 
-最初の 2 ステップの後、`prepare` は残りのコンテキストサイズを推定し、`CONTEXT_CHAR_LIMIT` を超えている場合にだけ `micro_compact` を実行します。`micro_compact` は直近の assistant 応答より後に追加されたすべての `tool_result` を完全に保持し、モデルが各結果を少なくとも 1 回は完全な形で読めるようにします。モデルがすでに読んだ結果については最新 3 件を残し、それより古く 120 文字を超える結果を短くします。保存済みの結果にはファイルパスを残し、それ以外はプレースホルダーに置き換えます。
+最初の 2 ステップの後、`prepare` は残りのコンテキストサイズを推定し、`CONTEXT_CHAR_LIMIT` を超えている場合にだけ `micro_compact` を実行します。モデルがすでに読んだ結果については最新 3 件を残し、それより古く 120 文字を超える結果を、コンテキストが上限の 80% に近づくまで順に短くします。古い結果は置換前に完全な内容をディスクへ保存するため、各プレースホルダーには復元用のパスが残ります。
 
-![古い結果を置き換える](images/micro-compact.ja.svg)
+![古い結果を復元可能なパスへ置き換える](images/micro-compact.ja.svg)
 
 ```python
 unseen = self.unseen_tool_result_positions(messages)
 consumed = [entry for entry in results if entry[:2] not in unseen]
 
 for _, _, block in consumed[:-self.KEEP_RECENT_RESULTS]:
+    if self.estimate_chars(messages) <= target_chars:
+        break
     content = str(block.get("content", ""))
     if len(content) <= 120:
         continue
-    saved_path = next(
-        (line.removeprefix("Full output: ") for line in content.splitlines()
-         if line.startswith("Full output: ")),
-        None,
-    )
-    block["content"] = (
-        f"[Earlier tool result saved at {saved_path}]"
-        if saved_path else "[Earlier tool result omitted.]"
-    )
+    saved_path = self.persisted_output_path(content)
+    if not saved_path:
+        saved_path = self.save_output(block["tool_use_id"], content)
+    block["content"] = f"[Earlier tool result saved at {saved_path}]"
 ```
 
-保存していない古い結果にはプレースホルダーだけが残ります。ステップ 1 で保存した結果には、完全な出力を読み直すためのパスが残ります。
+新しい結果は通常、モデルが一度読むまで完全な形で保持されます。未読の最新バッチだけでコンテキストを超える場合、`fit_tool_results` は大きな結果を保存し、1,000 文字の preview と完全な出力へのパスを残します。これにより、モデルが新しい結果を見る前に履歴全体を要約する事態を避けます。
 
-最初の 2 ステップは毎ラウンド実行され、ステップ 3 はコンテキストが上限を超えた場合にだけ実行されます。3 ステップとも決定的なテキスト処理と構造操作であり、追加の API 呼び出しは発生しません。
+最初の 2 ステップは毎ラウンド実行され、ステップ 3 はコンテキストが上限を超えた場合にだけ実行されます。3 ステップとも決定的で復元可能なテキスト処理と構造操作であり、追加の API 呼び出しは発生しません。
 
 
 ## ステップ 4：compact_history
 
-`micro_compact` の後、コードは `estimate_chars(messages)` でコンテキストを再び推定します。
+`micro_compact` と `fit_tool_results` の後、コードは `estimate_chars(messages)` でコンテキストを再び推定します。
 
 ```python
 CONTEXT_CHAR_LIMIT = 50000
@@ -181,13 +178,16 @@ def compact_history(messages, active_request):
 
 ## 順序を固定する理由
 
-パイプラインは次の順序で処理し、必要な場合にだけ情報を失う圧縮へ進みます。
+パイプラインは次の順序で処理し、必要な場合にだけ情報を失う要約へ進みます。
 
 ```python
 messages = self.tool_result_budget(messages)
 messages = self.snip_compact(messages)
 if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
-    messages = self.micro_compact(messages)
+    target = int(self.CONTEXT_CHAR_LIMIT * 0.8)
+    messages = self.micro_compact(messages, target)
+    if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
+        messages = self.fit_tool_results(messages, target)
     if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
         messages = self.compact_history(messages, active_request)
 ```
@@ -195,7 +195,7 @@ if self.estimate_chars(messages) > self.CONTEXT_CHAR_LIMIT:
 この順序には 2 つの条件があります。
 
 1. ステップ 1 と 2 は毎ラウンド実行され、ステップ 3 は上限を超えた場合だけ実行されます。API リクエストを追加するのはステップ 4 だけです。
-2. `tool_result_budget` は `micro_compact` より先に動く必要があります。古い結果をプレースホルダーにする前に、大きな結果をディスクへ保存します。
+2. 短縮した各ツール結果には `.task_outputs/tool-results/` 内の信頼できるパスを残します。それでも上限を超える場合にだけ、モデルによる履歴要約へ進みます。
 
 各ラウンドは、コストが低く情報を再取得しやすい処理から始まります。
 
@@ -310,7 +310,7 @@ s01_agent_loop から s05_todo_write までの README.md を読み、
 各ファイルの最上位見出しを比較して、命名の規則をまとめてください。
 ```
 
-このタスクでは少なくとも 5 件のファイル結果が生成されます。各新規結果はモデルが初めて読むまで完全に保持されます。以降のターンでは、すでに読まれた最新 3 件を残し、それより前の長い結果は `[Earlier tool result omitted.]` に変わります。保存済みの結果には保存先のパスが残ります。
+このタスクでは少なくとも 5 件のファイル結果が生成されます。新しい結果は通常、モデルが初めて読むまで完全に保持されます。未読結果自体が大きすぎる場合は、preview と復元パスを残します。以降のターンでは、すでに読まれた最新 3 件を残し、それより前の長い結果は `[Earlier tool result saved at ...]` 参照に変わります。
 
 ### 実験 2：大きな結果を保存する
 

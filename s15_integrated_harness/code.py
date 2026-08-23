@@ -1975,15 +1975,55 @@ def unseen_tool_result_positions(messages: list) -> set[tuple[int, int]]:
     }
 
 
+def persisted_output_path(output: str) -> str | None:
+    candidate = None
+    if output.startswith("<persisted-output>\n"):
+        candidate = next(
+            (line.removeprefix("Full output: ") for line in output.splitlines()
+             if line.startswith("Full output: ")),
+            None,
+        )
+    prefix = "[Earlier tool result saved at "
+    if output.startswith(prefix) and output.endswith("]"):
+        candidate = output.removeprefix(prefix).removesuffix("]")
+    if not candidate:
+        return None
+    path = Path(candidate)
+    if (not path.resolve().is_relative_to(TOOL_RESULTS_DIR.resolve())
+            or not path.is_file()):
+        return None
+    return str(path)
+
+
+def save_output(tool_use_id: str, output: str) -> Path:
+    TOOL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9._-]", "_", str(tool_use_id))[:120] or "unknown"
+    path = TOOL_RESULTS_DIR / f"{safe_id}.txt"
+    path.write_text(output, encoding="utf-8")
+    return path
+
+
+def persisted_preview(tool_use_id: str, output: str,
+                      preview_chars: int = 2000) -> str:
+    saved_path = persisted_output_path(output)
+    if saved_path:
+        path = Path(saved_path)
+        try:
+            with path.open(encoding="utf-8") as saved:
+                preview = saved.read(preview_chars)
+        except OSError:
+            preview = output[:preview_chars]
+    else:
+        path = save_output(tool_use_id, output)
+        preview = output[:preview_chars]
+    return (f"<persisted-output>\nFull output: {path}\n"
+            f"Preview:\n{preview}\n</persisted-output>")
+
+
 def persist_large_output(tool_use_id: str, output: str) -> str:
     if len(output) <= PERSIST_THRESHOLD:
         return output
-    TOOL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = TOOL_RESULTS_DIR / f"{tool_use_id}.txt"
-    if not path.exists():
-        path.write_text(output)
-    return (f"<persisted-output>\nFull output: {path}\n"
-            f"Preview:\n{output[:2000]}\n</persisted-output>")
+    return persisted_preview(tool_use_id, output)
 
 
 def tool_result_budget(messages: list, max_bytes: int = 200_000) -> list:
@@ -2010,10 +2050,22 @@ def tool_result_budget(messages: list, max_bytes: int = 200_000) -> list:
     return messages
 
 
+def is_archive_marker(message: dict) -> bool:
+    content = message.get("content")
+    match = (re.fullmatch(r"\[\d+ messages archived at (.+)\]", content)
+             if isinstance(content, str) else None)
+    if not match:
+        return False
+    path = Path(match.group(1))
+    return (path.resolve().is_relative_to(TRANSCRIPT_DIR.resolve())
+            and path.is_file())
+
+
 def snip_compact(messages: list, max_messages: int = 50) -> list:
     if len(messages) <= max_messages:
         return messages
-    head_end, tail_start = 3, len(messages) - (max_messages - 3)
+    head_end = 3
+    tail_start = len(messages) - (max_messages - head_end - 1)
     if head_end > 0 and message_has_tool_use(messages[head_end - 1]):
         while head_end < len(messages) and is_tool_result_message(messages[head_end]):
             head_end += 1
@@ -2023,26 +2075,55 @@ def snip_compact(messages: list, max_messages: int = 50) -> list:
         tail_start -= 1
     if head_end >= tail_start:
         return messages
+    middle = messages[head_end:tail_start]
+    if len(middle) == 1 and is_archive_marker(middle[0]):
+        return messages
     snipped = tail_start - head_end
+    transcript = write_transcript(messages)
     return (messages[:head_end]
-            + [{"role": "user", "content": f"[snipped {snipped} messages]"}]
+            + [{"role": "user", "content":
+                f"[{snipped} messages archived at {transcript}]"}]
             + messages[tail_start:])
 
 
-def micro_compact(messages: list) -> list:
+def micro_compact(messages: list, target_chars: int | None = None) -> list:
     tool_results = collect_tool_results(messages)
     unseen = unseen_tool_result_positions(messages)
     consumed = [entry for entry in tool_results if entry[:2] not in unseen]
     for _, _, block in consumed[:-KEEP_RECENT_TOOL_RESULTS]:
-        if len(str(block.get("content", ""))) > 120:
-            block["content"] = "[Earlier tool result compacted. Re-run if needed.]"
+        if target_chars is not None and estimate_size(messages) <= target_chars:
+            break
+        content = str(block.get("content", ""))
+        if len(content) <= 120:
+            continue
+        saved_path = persisted_output_path(content)
+        if not saved_path:
+            saved_path = str(save_output(
+                block.get("tool_use_id", "unknown"), content))
+        block["content"] = f"[Earlier tool result saved at {saved_path}]"
+    return messages
+
+
+def fit_tool_results(messages: list, target_chars: int) -> list:
+    results = [block for _, _, block in collect_tool_results(messages)]
+    for block in sorted(
+            results,
+            key=lambda item: len(str(item.get("content", ""))),
+            reverse=True):
+        if estimate_size(messages) <= target_chars:
+            break
+        output = str(block.get("content", ""))
+        replacement = persisted_preview(
+            block.get("tool_use_id", "unknown"), output, preview_chars=1000)
+        if len(replacement) < len(output):
+            block["content"] = replacement
     return messages
 
 
 def write_transcript(messages: list) -> Path:
     TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
-    path = TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
-    with path.open("w") as f:
+    path = TRANSCRIPT_DIR / f"transcript_{time.time_ns()}.jsonl"
+    with path.open("x") as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     return path
@@ -2970,7 +3051,11 @@ def prepare_context(messages: list, active_request: str) -> list:
     # Every LLM turn enters through the same context budget pipeline.
     messages[:] = tool_result_budget(messages)
     messages[:] = snip_compact(messages)
-    messages[:] = micro_compact(messages)
+    if estimate_size(messages) > CONTEXT_LIMIT:
+        target = int(CONTEXT_LIMIT * 0.8)
+        messages[:] = micro_compact(messages, target)
+        if estimate_size(messages) > CONTEXT_LIMIT:
+            messages[:] = fit_tool_results(messages, target)
     if estimate_size(messages) > CONTEXT_LIMIT:
         messages[:] = compact_history(messages, active_request)
     return messages
