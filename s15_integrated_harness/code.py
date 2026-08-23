@@ -972,11 +972,15 @@ def run_glob(pattern: str, cwd: Path | None = None) -> str:
     import glob as g
     try:
         base = (cwd or WORKDIR).resolve()
-        results = []
-        for match in g.glob(pattern, root_dir=base):
-            if (base / match).resolve().is_relative_to(base):
-                results.append(match)
-        return "\n".join(results) if results else "(no matches)"
+        matches = sorted({
+            match for match in g.glob(
+                pattern, root_dir=base, recursive=True)
+            if (base / match).resolve().is_relative_to(base)
+        })
+        shown = matches[:200]
+        if len(matches) > 200:
+            shown.append("... (more matches omitted; narrow the pattern)")
+        return "\n".join(shown) if shown else "(no matches)"
     except Exception as e:
         return f"Error: {e}"
 
@@ -1487,7 +1491,7 @@ def spawn_teammate_thread(name: str, role: str, prompt: str,
                                   "old_text": {"type": "string"},
                                   "new_text": {"type": "string"}},
                               "required": ["path", "old_text", "new_text"]}},
-            {"name": "glob", "description": "Find files by glob pattern.",
+            {"name": "glob", "description": "Find files by glob pattern; ** matches recursively.",
              "input_schema": {"type": "object",
                               "properties": {
                                   "pattern": {"type": "string"}},
@@ -1849,7 +1853,7 @@ SUB_TOOLS = [
                                      "old_text": {"type": "string"},
                                      "new_text": {"type": "string"}},
                       "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
+    {"name": "glob", "description": "Find files matching a glob pattern; ** matches recursively.",
      "input_schema": {"type": "object",
                       "properties": {"pattern": {"type": "string"}},
                       "required": ["pattern"]}},
@@ -2776,7 +2780,7 @@ BUILTIN_TOOLS = [
                                      "old_text": {"type": "string"},
                                      "new_text": {"type": "string"}},
                       "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
+    {"name": "glob", "description": "Find files matching a glob pattern; ** matches recursively.",
      "input_schema": {"type": "object",
                       "properties": {"pattern": {"type": "string"}},
                       "required": ["pattern"]}},

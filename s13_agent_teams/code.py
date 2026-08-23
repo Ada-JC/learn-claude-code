@@ -727,7 +727,10 @@ def run_glob(pattern: str, cwd: Path | None = None) -> str:
             for path in sorted(base.glob(pattern))
             if path.resolve().is_relative_to(base)
         ]
-        return "\n".join(matches[:200]) or "No files found"
+        shown = matches[:200]
+        if len(matches) > 200:
+            shown.append("... (more matches omitted; narrow the pattern)")
+        return "\n".join(shown) or "No files found"
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -1519,7 +1522,7 @@ BASE_TOOLS = [
                                      "old_text": {"type": "string"},
                                      "new_text": {"type": "string"}},
                       "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files by glob pattern.",
+    {"name": "glob", "description": "Find files by glob pattern; ** matches recursively.",
      "input_schema": {"type": "object",
                       "properties": {"pattern": {"type": "string"}},
                       "required": ["pattern"]}},
