@@ -154,6 +154,8 @@ LLM call の前に compaction pipeline を走らせる：
 tool_result_budget → snip_compact → micro_compact → compact_history
 ```
 
+`snip_compact` は中間メッセージを切る前に完全な履歴を保存する。`micro_compact` はコンテキストが上限を超えた場合にだけ実行し、古い既読結果を保存して復元パスへ置き換え、最新 3 件を完全に保ち、上限の約 80% で停止する。未読の新しい結果自体が大きすぎる場合、S15 は履歴要約を検討する前に preview と完全な出力へのパスを残す。
+
 model call は recovery で包む：
 
 - 429: exponential backoff retry

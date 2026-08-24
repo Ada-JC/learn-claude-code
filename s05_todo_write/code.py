@@ -96,11 +96,15 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 def run_glob(pattern: str) -> str:
     import glob as g
     try:
-        results = []
-        for match in g.glob(pattern, root_dir=WORKDIR):
-            if (WORKDIR / match).resolve().is_relative_to(WORKDIR):
-                results.append(match)
-        return "\n".join(results) if results else "(no matches)"
+        matches = sorted({
+            match for match in g.glob(
+                pattern, root_dir=WORKDIR, recursive=True)
+            if (WORKDIR / match).resolve().is_relative_to(WORKDIR)
+        })
+        shown = matches[:200]
+        if len(matches) > 200:
+            shown.append("... (more matches omitted; narrow the pattern)")
+        return "\n".join(shown) if shown else "(no matches)"
     except Exception as e:
         return f"Error: {e}"
 
@@ -186,7 +190,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in a file once.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
+    {"name": "glob", "description": "Find files matching a glob pattern; ** matches recursively.",
      "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
     # s05: new tool
     {"name": "todo_write", "description": "Create and manage a task list for your current coding session.",

@@ -74,7 +74,12 @@ def run_edit(path, old_text, new_text):
 
 def run_glob(pattern):
     import glob as g
-    return "\n".join(g.glob(pattern, root_dir=WORKDIR))
+    matches = sorted(set(g.glob(
+        pattern, root_dir=WORKDIR, recursive=True)))
+    shown = matches[:200]
+    if len(matches) > 200:
+        shown.append("... (more matches omitted; narrow the pattern)")
+    return "\n".join(shown)
 ```
 
 ---

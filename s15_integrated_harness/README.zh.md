@@ -154,6 +154,8 @@ LLM 前先跑压缩管线：
 tool_result_budget → snip_compact → micro_compact → compact_history
 ```
 
+`snip_compact` 会先归档完整历史，再裁掉中段消息。`micro_compact` 只在上下文超限时运行：它先保存较早且已读取的结果，再用恢复路径替换；最近 3 条保持完整，并在接近阈值 80% 时停止。如果未读取的新结果本身过大，S15 会先保留预览和完整输出路径，再考虑总结历史。
+
 调用模型时再包一层恢复：
 
 - 429：指数退避重试
