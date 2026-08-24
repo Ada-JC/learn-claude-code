@@ -147,6 +147,47 @@ def run_glob_tool(lesson, workdir: Path, pattern: str) -> str:
     return session._run_tool("glob", {"pattern": pattern})
 
 
+def run_text_tool(lesson, workdir: Path, name: str, arguments: dict) -> str:
+    handlers = {
+        "read_file": "run_read",
+        "write_file": "run_write",
+        "edit_file": "run_edit",
+    }
+    handler = getattr(lesson, handlers[name], None)
+    if handler is not None:
+        return handler(**arguments)
+    session = object.__new__(lesson.AgentSession)
+    session.workdir = workdir.resolve()
+    return session._run_tool(name, arguments)
+
+
+@pytest.mark.parametrize("lesson_path", GLOB_LESSONS,
+                         ids=lambda path: path.parent.name)
+def test_text_tools_use_utf8_for_non_ascii_content(
+        tmp_path: Path, lesson_path: Path):
+    lesson = load_lesson(tmp_path, lesson_path)
+    path = tmp_path / "note.txt"
+    original = "你好，UTF-8\n"
+
+    written = run_text_tool(
+        lesson, tmp_path, "write_file", {"path": path.name, "content": original}
+    )
+    read = run_text_tool(
+        lesson, tmp_path, "read_file", {"path": path.name}
+    )
+    edited = run_text_tool(
+        lesson,
+        tmp_path,
+        "edit_file",
+        {"path": path.name, "old_text": "UTF-8", "new_text": "跨平台"},
+    )
+
+    assert not written.startswith("Error:")
+    assert read == original.rstrip()
+    assert not edited.startswith("Error:")
+    assert path.read_bytes() == "你好，跨平台\n".encode("utf-8")
+
+
 @pytest.mark.parametrize("lesson_path", GLOB_LESSONS,
                          ids=lambda path: path.parent.name)
 def test_glob_double_star_matches_files_at_any_depth(

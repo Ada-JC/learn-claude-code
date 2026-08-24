@@ -149,7 +149,7 @@ def task_store_lock():
         depth = getattr(_task_store_state, "depth", 0)
         if depth == 0:
             TASKS_DIR.mkdir(parents=True, exist_ok=True)
-            handle = TASK_LOCK_PATH.open("a+")
+            handle = TASK_LOCK_PATH.open("a+", encoding="utf-8")
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             _task_store_state.handle = handle
         _task_store_state.depth = depth + 1
@@ -741,7 +741,7 @@ def scan_skills():
             continue
         if not manifest.resolve().is_relative_to(skills_root):
             continue
-        raw = manifest.read_text()
+        raw = manifest.read_text(encoding="utf-8")
         meta, body = _parse_frontmatter(raw)
         raw_name = meta.get("name")
         name = raw_name.strip() if isinstance(raw_name, str) else ""
@@ -934,7 +934,7 @@ def run_read(path: str, limit: int | None = None,
              offset: int = 0, cwd: Path | None = None) -> str:
     try:
         file_path = safe_path(path, cwd)
-        lines = file_path.read_text().splitlines()
+        lines = file_path.read_text(encoding="utf-8").splitlines()
         offset = max(int(offset or 0), 0)
         limit = int(limit) if limit is not None else None
         lines = lines[offset:]
@@ -949,7 +949,7 @@ def run_write(path: str, content: str, cwd: Path | None = None) -> str:
     try:
         fp = safe_path(path, cwd)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content)
+        fp.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -959,10 +959,10 @@ def run_edit(path: str, old_text: str, new_text: str,
              cwd: Path | None = None) -> str:
     try:
         fp = safe_path(path, cwd)
-        text = fp.read_text()
+        text = fp.read_text(encoding="utf-8")
         if old_text not in text:
             return f"Error: text not found in {path}"
-        fp.write_text(text.replace(old_text, new_text, 1))
+        fp.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -1086,7 +1086,7 @@ class MessageBus:
         inbox = self._path(agent)
         if not inbox.exists():
             return []
-        msgs = [json.loads(line) for line in inbox.read_text().splitlines()
+        msgs = [json.loads(line) for line in inbox.read_text(encoding="utf-8").splitlines()
                 if line.strip()]
         inbox.unlink()
         return msgs
@@ -2123,7 +2123,7 @@ def fit_tool_results(messages: list, target_chars: int) -> list:
 def write_transcript(messages: list) -> Path:
     TRANSCRIPT_DIR.mkdir(parents=True, exist_ok=True)
     path = TRANSCRIPT_DIR / f"transcript_{time.time_ns()}.jsonl"
-    with path.open("x") as f:
+    with path.open("x", encoding="utf-8") as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     return path
@@ -2439,7 +2439,7 @@ def save_durable_jobs():
     with cron_lock:
         durable = [asdict(job) for job in scheduled_jobs.values() if job.durable]
         temporary = DURABLE_PATH.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(durable, indent=2))
+        temporary.write_text(json.dumps(durable, indent=2), encoding="utf-8")
         os.replace(temporary, DURABLE_PATH)
 
 
@@ -2447,7 +2447,7 @@ def load_durable_jobs():
     if not DURABLE_PATH.exists():
         return
     try:
-        for item in json.loads(DURABLE_PATH.read_text()):
+        for item in json.loads(DURABLE_PATH.read_text(encoding="utf-8")):
             job = CronJob(**item)
             if not validate_cron(job.cron):
                 scheduled_jobs[job.id] = job
