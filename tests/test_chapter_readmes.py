@@ -24,7 +24,7 @@ def test_every_chapter_has_the_same_language_navigation() -> None:
 
     for chapter in CHAPTERS:
         for filename in ("README.md", "README.zh.md", "README.ja.md"):
-            lines = (chapter / filename).read_text().splitlines()
+            lines = (chapter / filename).read_text(encoding="utf-8").splitlines()
             assert lines[2] == expected
 
 

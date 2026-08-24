@@ -56,20 +56,20 @@ TOOLS = [
 
 ```python
 def run_read(path, limit=None):
-    lines = safe_path(path).read_text().splitlines()
+    lines = safe_path(path).read_text(encoding="utf-8").splitlines()
     if limit:
         lines = lines[:limit]
     return "\n".join(lines)
 
 def run_write(path, content):
-    safe_path(path).write_text(content)
+    safe_path(path).write_text(content, encoding="utf-8")
     return f"Wrote {len(content)} bytes to {path}"
 
 def run_edit(path, old_text, new_text):
-    text = safe_path(path).read_text()
+    text = safe_path(path).read_text(encoding="utf-8")
     if old_text not in text:
         return "Error: text not found"
-    safe_path(path).write_text(text.replace(old_text, new_text, 1))
+    safe_path(path).write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
     return f"Edited {path}"
 
 def run_glob(pattern):
