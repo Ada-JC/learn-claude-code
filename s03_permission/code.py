@@ -8,13 +8,17 @@ Three gates inserted before tool execution:
     Gate 2: Rule matching (write outside workspace? destructive cmd?)
     Gate 3: User approval (pause and wait for confirmation)
 
-    +-------+    +--------+    +--------+    +--------+    +------+
-    | Tool  | -> | Gate 1 | -> | Gate 2 | -> | Gate 3 | -> | Exec |
-    | call  |    | deny?  |    | match? |    | allow? |    |      |
-    +-------+    +--------+    +--------+    +--------+    +------+
-         |            |             |             |
-         v            v             v             v
-      (normal)     (blocked)    (ask user)   (user says no?)
+    +----------+      +-------+      +--------------+      +---------------+
+    |   User   | ---> |  LLM  | ---> | Permission   | ---> | Tool Dispatch |
+    |  prompt  |      |       |      | 1. deny list |      | execute       |
+    +----------+      +---+---+      | 2. rules     |      +-------+-------+
+                          ^          | 3. approval  |              |
+                          |          +------+-------+              |
+                          |                 | deny                 |
+                          |                 v                      v
+                          |          +-------------------------------+
+                          +----------+ tool_result: denied or output |
+                                     +-------------------------------+
 
 Only one line added to the agent loop:
 
@@ -27,7 +31,8 @@ Builds on s02 (multi-tool). Usage:
     Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
 """
 
-import os, subprocess
+import os
+import subprocess
 from pathlib import Path
 
 try:
@@ -53,9 +58,7 @@ MODEL = os.environ["MODEL_ID"]
 SYSTEM = f"You are a coding agent at {WORKDIR}. All destructive operations require user approval."
 
 
-# ═══════════════════════════════════════════════════════════
-#  FROM s02 : Tool Implementations
-# ═══════════════════════════════════════════════════════════
+# -- From s02: tool implementations --
 
 def run_bash(command: str) -> str:
     try:
@@ -69,7 +72,7 @@ def run_bash(command: str) -> str:
 
 def run_read(path: str, limit: int | None = None) -> str:
     try:
-        lines = (WORKDIR / path).resolve().read_text().splitlines()
+        lines = (WORKDIR / path).resolve().read_text(encoding="utf-8").splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
         return "\n".join(lines)
@@ -81,7 +84,7 @@ def run_write(path: str, content: str) -> str:
     try:
         file_path = (WORKDIR / path).resolve()
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content)
+        file_path.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -90,10 +93,10 @@ def run_write(path: str, content: str) -> str:
 def run_edit(path: str, old_text: str, new_text: str) -> str:
     try:
         file_path = (WORKDIR / path).resolve()
-        text = file_path.read_text()
+        text = file_path.read_text(encoding="utf-8")
         if old_text not in text:
             return f"Error: text not found in {path}"
-        file_path.write_text(text.replace(old_text, new_text, 1))
+        file_path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
         return f"Edited {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -102,18 +105,20 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 def run_glob(pattern: str) -> str:
     import glob as g
     try:
-        results = []
-        for match in g.glob(pattern, root_dir=WORKDIR):
-            if (WORKDIR / match).resolve().is_relative_to(WORKDIR):
-                results.append(match)
-        return "\n".join(results) if results else "(no matches)"
+        matches = sorted({
+            match for match in g.glob(
+                pattern, root_dir=WORKDIR, recursive=True)
+            if (WORKDIR / match).resolve().is_relative_to(WORKDIR)
+        })
+        shown = matches[:200]
+        if len(matches) > 200:
+            shown.append("... (more matches omitted; narrow the pattern)")
+        return "\n".join(shown) if shown else "(no matches)"
     except Exception as e:
         return f"Error: {e}"
 
 
-# ═══════════════════════════════════════════════════════════
-#  FROM s02 (unchanged): Tool Definitions & Dispatch
-# ═══════════════════════════════════════════════════════════
+# -- From s02 (unchanged): tool definitions and dispatch --
 
 TOOLS = [
     {"name": "bash", "description": "Run a shell command.",
@@ -124,7 +129,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "edit_file", "description": "Replace exact text in a file once.",
      "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
+    {"name": "glob", "description": "Find files matching a glob pattern; ** matches recursively.",
      "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
 ]
 
@@ -134,11 +139,9 @@ TOOL_HANDLERS = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
-#  NEW in s03: Three-Gate Permission Pipeline
-# ═══════════════════════════════════════════════════════════
+# -- New in s03: three-gate permission pipeline --
 
-# Gate 1: Hard deny list — always forbidden
+# Gate 1: Hard deny list - always forbidden
 DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/sda"]
 
 def check_deny_list(command: str) -> str | None:
@@ -148,7 +151,7 @@ def check_deny_list(command: str) -> str | None:
     return None
 
 
-# Gate 2: Rule matching — context-dependent checks
+# Gate 2: Rule matching - context-dependent checks
 PERMISSION_RULES = [
     {"tools": ["read_file", "write_file", "edit_file"],
      "check": lambda args: not (WORKDIR / args.get("path", "")).resolve().is_relative_to(WORKDIR),
@@ -165,9 +168,9 @@ def check_rules(tool_name: str, args: dict) -> str | None:
     return None
 
 
-# Gate 3: User approval — wait for confirmation after rule match
+# Gate 3: User approval - wait for confirmation after rule match
 def ask_user(tool_name: str, args: dict, reason: str) -> str:
-    print(f"\n\033[33m⚠  {reason}\033[0m")
+    print(f"\n\033[33m[permission] {reason}\033[0m")
     print(f"   Tool: {tool_name}({args})")
     choice = input("   Allow? [y/N] ").strip().lower()
     return "allow" if choice in ("y", "yes") else "deny"
@@ -178,7 +181,7 @@ def check_permission(block) -> bool:
     if block.name == "bash":
         reason = check_deny_list(block.input.get("command", ""))
         if reason:
-            print(f"\n\033[31m⛔ {reason}\033[0m")
+            print(f"\n\033[31m[blocked] {reason}\033[0m")
             return False
     reason = check_rules(block.name, block.input)
     if reason:
@@ -188,9 +191,7 @@ def check_permission(block) -> bool:
     return True
 
 
-# ═══════════════════════════════════════════════════════════
-#  agent_loop — same as s02, with check_permission() inserted
-# ═══════════════════════════════════════════════════════════
+# -- Agent loop: same as s02, with check_permission() inserted --
 
 def agent_loop(messages: list):
     while True:
@@ -200,14 +201,14 @@ def agent_loop(messages: list):
         )
         messages.append({"role": "assistant", "content": response.content})
 
-        if response.stop_reason != "tool_use":
+        tool_calls = [
+            block for block in response.content if block.type == "tool_use"
+        ]
+        if not tool_calls:
             return
 
         results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-
+        for block in tool_calls:
             print(f"\033[36m> {block.name}\033[0m")
 
             # s03 change: run through permission pipeline before executing
@@ -226,12 +227,13 @@ def agent_loop(messages: list):
 
 if __name__ == "__main__":
     print("s03: Permission")
-    print("输入问题，回车发送。输入 q 退出。\n")
+    print("Enter a question, press Enter to send. Type q to quit.\n")
 
     history = []
     while True:
         try:
-            query = input("\033[36ms03 >> \033[0m")
+            # \001/\002 tell Readline the ANSI escapes have zero display width.
+            query = input("\001\033[36m\002s03 >> \001\033[0m\002")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
