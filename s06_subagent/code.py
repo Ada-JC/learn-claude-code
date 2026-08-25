@@ -58,7 +58,7 @@ def run_bash(command: str) -> str:
     try:
         result = subprocess.run(
             command, shell=True, cwd=WORKDIR,
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, errors="replace", timeout=120,
         )
         output = (result.stdout + result.stderr).strip()
         return output[:50000] if output else "(no output)"

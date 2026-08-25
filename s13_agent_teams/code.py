@@ -372,7 +372,7 @@ def _run_git(args: list[str], cwd: Path | None = None) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             ["git", *args], cwd=cwd or WORKDIR,
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"{type(exc).__name__}: {exc}"
@@ -670,7 +670,7 @@ def run_bash(command: str, cwd: Path | None = None) -> str:
             shell=True,
             cwd=cwd or WORKDIR,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=120,
         )
         output = (result.stdout + result.stderr).strip()

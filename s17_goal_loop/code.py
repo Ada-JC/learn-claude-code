@@ -761,7 +761,7 @@ class AgentSession:
                 shell=True,
                 cwd=self.workdir,
                 capture_output=True,
-                text=True,
+                text=True, errors="replace",
                 timeout=120,
                 check=False,
             )

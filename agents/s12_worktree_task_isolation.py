@@ -63,7 +63,7 @@ def detect_repo_root(cwd: Path) -> Path | None:
             ["git", "rev-parse", "--show-toplevel"],
             cwd=cwd,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=10,
         )
         if r.returncode != 0:
@@ -246,7 +246,7 @@ class WorktreeManager:
                 ["git", "rev-parse", "--is-inside-work-tree"],
                 cwd=self.repo_root,
                 capture_output=True,
-                text=True,
+                text=True, errors="replace",
                 timeout=10,
             )
             return r.returncode == 0
@@ -260,7 +260,7 @@ class WorktreeManager:
             ["git", *args],
             cwd=self.repo_root,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=120,
         )
         if r.returncode != 0:
@@ -365,7 +365,7 @@ class WorktreeManager:
             ["git", "status", "--short", "--branch"],
             cwd=path,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=60,
         )
         text = (r.stdout + r.stderr).strip()
@@ -389,7 +389,7 @@ class WorktreeManager:
                 shell=True,
                 cwd=path,
                 capture_output=True,
-                text=True,
+                text=True, errors="replace",
                 timeout=300,
             )
             out = (r.stdout + r.stderr).strip()
@@ -498,7 +498,7 @@ def run_bash(command: str) -> str:
             shell=True,
             cwd=WORKDIR,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=120,
         )
         out = (r.stdout + r.stderr).strip()

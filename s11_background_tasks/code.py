@@ -88,7 +88,7 @@ def _run_bash_process(command: str) -> tuple[str, int | None]:
             cwd=WORKDIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
+            text=True, errors="replace",
             start_new_session=True,
         )
         with _shell_process_lock:
