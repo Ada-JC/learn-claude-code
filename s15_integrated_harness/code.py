@@ -72,6 +72,8 @@ KEEP_RECENT_TOOL_RESULTS = 3
 PERSIST_THRESHOLD = 30000
 CONTINUATION_PROMPT = "Continue from the previous response. Do not repeat completed work."
 PROMPT = "\033[36ms15 >> \033[0m"
+# \001/\002 tell Readline the ANSI escapes have zero display width.
+READLINE_PROMPT = "\001\033[36m\002s15 >> \001\033[0m\002"
 CLI_ACTIVE = False
 
 
@@ -102,10 +104,17 @@ class ConsoleBroker:
     def __init__(self):
         self._lock = threading.Lock()
         self.reader = None
+        self.display_prompt = PROMPT
+        self.readline_prompt = READLINE_PROMPT
 
-    def ask(self, prompt: str) -> str:
+    def set_prompt(self, display_prompt: str, readline_prompt: str):
+        self.display_prompt = display_prompt
+        self.readline_prompt = readline_prompt
+
+    def ask(self, prompt: str | None = None) -> str:
         with self._lock:
-            return (self.reader or input)(prompt)
+            active_prompt = self.readline_prompt if prompt is None else prompt
+            return (self.reader or input)(active_prompt)
 
 
 CONSOLE = ConsoleBroker()
@@ -122,7 +131,7 @@ def terminal_print(text: str):
         except Exception:
             line = ""
     print(f"\r\033[K{text}")
-    print(PROMPT + line, end="", flush=True)
+    print(CONSOLE.display_prompt + line, end="", flush=True)
 
 # -- Task System --
 
@@ -3266,7 +3275,7 @@ if __name__ == "__main__":
                      args=(history, context, session_state), daemon=True).start()
     while True:
         try:
-            query = CONSOLE.ask(PROMPT)
+            query = CONSOLE.ask()
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
