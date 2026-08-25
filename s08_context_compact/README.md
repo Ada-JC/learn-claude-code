@@ -296,6 +296,10 @@ This leaves no orphaned tool result. It also preserves the record of a file writ
 > **Boundary with s09:** s08 manages the limited context of the current session and may discard recoverable details. s09 stores information that must survive compaction and future sessions.
 
 
+## Inherited permission rule
+
+This chapter carries forward the permission hook from s04. It recognizes `rm` and `del` case-insensitively only as complete command words at the start of a command or after a shell separator (`;`, `&&`, `||`, `|`, `&`, parentheses, or a newline). It does not treat `model`, `delimiter`, or `echo del test.txt` as destructive.
+
 ## Try It
 
 ```bash

@@ -102,12 +102,26 @@ agent_loop(history)
 **PreToolUse / PostToolUse**，工具执行前后的 hook。s03 的权限检查逻辑现在包装成 PreToolUse hook，再加一个日志 hook 和一个大输出提醒：
 
 ```python
+import re
+
+DESTRUCTIVE_COMMAND_WORD = re.compile(
+    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
+)
+
+
+def contains_destructive_command(command: str) -> bool:
+    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
+
+
 # PreToolUse: 权限检查（s03 的逻辑，从循环移到 hook）
 def permission_hook(block):
     if block.name == "bash":
+        command = block.input.get("command", "")
         for pattern in DENY_LIST:
-            if pattern in block.input.get("command", ""):
+            if pattern in command:
                 return "Permission denied by deny list"
+        if contains_destructive_command(command):
+            return "Potentially destructive command"
     if block.name in ("read_file", "write_file", "edit_file"):
         path = block.input.get("path", "")
         if not (WORKDIR / path).resolve().is_relative_to(WORKDIR):
@@ -129,6 +143,8 @@ register_hook("PreToolUse", permission_hook)
 register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
+
+沿用的 shell 规则不区分大小写，只在命令开头或 shell 分隔符之后识别完整的 `rm`/`del` 命令词。`model`、`delimiter` 和 `echo del test.txt` 不会被识别为危险命令。
 
 **Stop** 在循环即将退出时触发。以下 hook 打印收尾统计：
 

@@ -88,6 +88,10 @@ TOOL_HANDLERS = {**BASE_HANDLERS, "task": run_subagent}
 
 ---
 
+## 継承する権限ルール
+
+この章は s04 の permission hook を引き継ぐ。command の先頭または shell separator（`;`、`&&`、`||`、`|`、`&`、括弧、改行）の直後にある完全な `rm`/`del` command word だけを大文字小文字を区別せず検出する。`model`、`delimiter`、`echo del test.txt` は危険な command として扱わない。
+
 ## 試してみよう
 
 ```sh

@@ -20,6 +20,7 @@ The model loads the full SKILL.md only when it calls load_skill.
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -241,7 +242,14 @@ def trigger_hooks(event: str, *args):
 
 
 DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if="]
-DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
+DESTRUCTIVE_COMMAND_WORD = re.compile(
+    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
+)
+DESTRUCTIVE = ["> /etc/", "chmod 777"]
+
+
+def contains_destructive_command(command: str) -> bool:
+    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
 
 
 def permission_hook(block):
@@ -252,13 +260,14 @@ def permission_hook(block):
             if pattern in command:
                 print(f"\n\033[31m[blocked] '{pattern}'\033[0m")
                 return "Permission denied by deny list"
-        for keyword in DESTRUCTIVE:
-            if keyword in command:
-                print("\n\033[33m[permission] Potentially destructive command\033[0m")
-                print(f"   Tool: {block.name}({block.input})")
-                choice = input("   Allow? [y/N] ").strip().lower()
-                if choice not in ("y", "yes"):
-                    return "Permission denied by user"
+        if contains_destructive_command(command) or any(
+            keyword in command for keyword in DESTRUCTIVE
+        ):
+            print("\n\033[33m[permission] Potentially destructive command\033[0m")
+            print(f"   Tool: {block.name}({block.input})")
+            choice = input("   Allow? [y/N] ").strip().lower()
+            if choice not in ("y", "yes"):
+                return "Permission denied by user"
 
     if block.name in ("read_file", "write_file", "edit_file"):
         path = block.input.get("path", "")

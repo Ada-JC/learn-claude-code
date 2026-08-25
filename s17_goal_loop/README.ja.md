@@ -222,6 +222,10 @@ command line から直接 Goal を設定することもできます。
 python s17_goal_loop/code.py "/goal python -m pytest が exit code 0 で終了する"
 ```
 
+## 継承する権限ルール
+
+この章は s04 の permission hook を引き継ぐ。command の先頭または shell separator（`;`、`&&`、`||`、`|`、`&`、括弧、改行）の直後にある完全な `rm`/`del` command word だけを大文字小文字を区別せず検出する。`model`、`delimiter`、`echo del test.txt` は危険な command として扱わない。
+
 ## s16 との関係
 
 s16 は「複数の仕事をどう実行するか」を扱いました。どの step を並列化し、結果をどう検証し、中断後にどう resume するかを決めます。

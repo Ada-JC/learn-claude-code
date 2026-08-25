@@ -296,6 +296,10 @@ if compact_requested:
 > **s09 との境界：** s08 は現在のセッションにある有限のコンテキストを管理し、再取得できる詳細を圧縮できます。s09 は、圧縮後や次のセッションにも残す情報を保存します。
 
 
+## 継承する権限ルール
+
+この章は s04 の permission hook を引き継ぐ。command の先頭または shell separator（`;`、`&&`、`||`、`|`、`&`、括弧、改行）の直後にある完全な `rm`/`del` command word だけを大文字小文字を区別せず検出する。`model`、`delimiter`、`echo del test.txt` は危険な command として扱わない。
+
 ## 試してみる
 
 ```bash
