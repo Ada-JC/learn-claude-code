@@ -30,6 +30,8 @@ LESSONS = tuple(
     )
 )
 INTEGRATED_LESSON = ROOT / "s15_integrated_harness" / "code.py"
+GOAL_LESSON = ROOT / "s17_goal_loop" / "code.py"
+GLOB_LESSONS = (*LESSONS[1:], INTEGRATED_LESSON, GOAL_LESSON)
 
 
 class FakeMessagesApi:
@@ -135,6 +137,83 @@ def bash_tool_call():
         name="bash",
         input={"command": "true"},
     )
+
+
+def run_glob_tool(lesson, workdir: Path, pattern: str) -> str:
+    if hasattr(lesson, "run_glob"):
+        return lesson.run_glob(pattern)
+    session = object.__new__(lesson.AgentSession)
+    session.workdir = workdir.resolve()
+    return session._run_tool("glob", {"pattern": pattern})
+
+
+def run_text_tool(lesson, workdir: Path, name: str, arguments: dict) -> str:
+    handlers = {
+        "read_file": "run_read",
+        "write_file": "run_write",
+        "edit_file": "run_edit",
+    }
+    handler = getattr(lesson, handlers[name], None)
+    if handler is not None:
+        return handler(**arguments)
+    session = object.__new__(lesson.AgentSession)
+    session.workdir = workdir.resolve()
+    return session._run_tool(name, arguments)
+
+
+@pytest.mark.parametrize("lesson_path", GLOB_LESSONS,
+                         ids=lambda path: path.parent.name)
+def test_text_tools_use_utf8_for_non_ascii_content(
+        tmp_path: Path, lesson_path: Path):
+    lesson = load_lesson(tmp_path, lesson_path)
+    path = tmp_path / "note.txt"
+    original = "你好，UTF-8\n"
+
+    written = run_text_tool(
+        lesson, tmp_path, "write_file", {"path": path.name, "content": original}
+    )
+    read = run_text_tool(
+        lesson, tmp_path, "read_file", {"path": path.name}
+    )
+    edited = run_text_tool(
+        lesson,
+        tmp_path,
+        "edit_file",
+        {"path": path.name, "old_text": "UTF-8", "new_text": "跨平台"},
+    )
+
+    assert not written.startswith("Error:")
+    assert read == original.rstrip()
+    assert not edited.startswith("Error:")
+    assert path.read_bytes() == "你好，跨平台\n".encode("utf-8")
+
+
+@pytest.mark.parametrize("lesson_path", GLOB_LESSONS,
+                         ids=lambda path: path.parent.name)
+def test_glob_double_star_matches_files_at_any_depth(
+        tmp_path: Path, lesson_path: Path):
+    (tmp_path / "root.py").write_text("")
+    (tmp_path / "one" / "two").mkdir(parents=True)
+    (tmp_path / "one" / "one.py").write_text("")
+    (tmp_path / "one" / "two" / "deep.py").write_text("")
+    lesson = load_lesson(tmp_path, lesson_path)
+
+    matches = set(run_glob_tool(lesson, tmp_path, "**/*.py").splitlines())
+
+    assert matches == {"root.py", "one/one.py", "one/two/deep.py"}
+
+
+@pytest.mark.parametrize("lesson_path", GLOB_LESSONS,
+                         ids=lambda path: path.parent.name)
+def test_glob_caps_large_result_sets(tmp_path: Path, lesson_path: Path):
+    for index in range(205):
+        (tmp_path / f"file-{index:03}.txt").write_text("")
+    lesson = load_lesson(tmp_path, lesson_path)
+
+    lines = run_glob_tool(lesson, tmp_path, "*.txt").splitlines()
+
+    assert len(lines) == 201
+    assert lines[-1] == "... (more matches omitted; narrow the pattern)"
 
 
 @pytest.mark.parametrize("lesson_path", LESSONS, ids=lambda path: path.parent.name)

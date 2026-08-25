@@ -154,6 +154,8 @@ Before the LLM call, S15 runs the compaction pipeline:
 tool_result_budget → snip_compact → micro_compact → compact_history
 ```
 
+`snip_compact` archives the complete history before trimming its middle. `micro_compact` runs only above the context limit: it saves older consumed results before replacing them with recovery paths, keeps the latest 3 complete, and stops near 80% of the limit. If a new unseen result is itself too large, S15 keeps a preview and the full-output path before considering history summarization.
+
 The model call is wrapped with recovery:
 
 - 429: exponential backoff retry

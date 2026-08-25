@@ -74,7 +74,7 @@ def task_store_lock():
         depth = getattr(_task_store_state, "depth", 0)
         if depth == 0:
             TASKS_DIR.mkdir(parents=True, exist_ok=True)
-            handle = TASK_LOCK_PATH.open("a+")
+            handle = TASK_LOCK_PATH.open("a+", encoding="utf-8")
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             _task_store_state.handle = handle
         _task_store_state.depth = depth + 1
@@ -687,7 +687,7 @@ def run_bash(command: str, cwd: Path | None = None) -> str:
 def run_read(path: str, limit: int | None = None,
              cwd: Path | None = None) -> str:
     try:
-        lines = safe_path(path, cwd).read_text().splitlines()
+        lines = safe_path(path, cwd).read_text(encoding="utf-8").splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"... ({len(lines) - limit} more lines)"]
         return "\n".join(lines)
@@ -699,7 +699,7 @@ def run_write(path: str, content: str, cwd: Path | None = None) -> str:
     try:
         fp = safe_path(path, cwd)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content)
+        fp.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} bytes to {path}"
     except Exception as e:
         return f"Error: {e}"
@@ -727,7 +727,10 @@ def run_glob(pattern: str, cwd: Path | None = None) -> str:
             for path in sorted(base.glob(pattern))
             if path.resolve().is_relative_to(base)
         ]
-        return "\n".join(matches[:200]) or "No files found"
+        shown = matches[:200]
+        if len(matches) > 200:
+            shown.append("... (more matches omitted; narrow the pattern)")
+        return "\n".join(shown) or "No files found"
     except Exception as exc:
         return f"Error: {exc}"
 
@@ -859,7 +862,7 @@ class MessageBus:
         inbox = self._path(agent)
         if not inbox.exists():
             return []
-        msgs = [json.loads(line) for line in inbox.read_text().splitlines()
+        msgs = [json.loads(line) for line in inbox.read_text(encoding="utf-8").splitlines()
                 if line.strip()]
         inbox.unlink()
         return msgs
@@ -1519,7 +1522,7 @@ BASE_TOOLS = [
                                      "old_text": {"type": "string"},
                                      "new_text": {"type": "string"}},
                       "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files by glob pattern.",
+    {"name": "glob", "description": "Find files by glob pattern; ** matches recursively.",
      "input_schema": {"type": "object",
                       "properties": {"pattern": {"type": "string"}},
                       "required": ["pattern"]}},

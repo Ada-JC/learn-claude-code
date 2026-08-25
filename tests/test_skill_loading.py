@@ -93,6 +93,33 @@ UNIQUE_FULL_INSTRUCTION
         assert lesson.TOOL_HANDLERS["load_skill"]("code-review") == manifest
 
 
+def test_skill_loaders_read_utf8_manifests() -> None:
+    manifest = """---
+name: chinese-skill
+description: 处理中文内容
+---
+
+# 中文技能
+"""
+    for lesson_path in SKILL_LESSONS:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill_dir = root / "skills" / "chinese-skill"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_bytes(manifest.encode("utf-8"))
+
+            lesson = load_lesson(root, lesson_path)
+            registry = (lesson.SKILL_LOADER.skills
+                        if hasattr(lesson, "SKILL_LOADER")
+                        else lesson.SKILL_REGISTRY)
+            loaded = (lesson.SKILL_LOADER.load("chinese-skill")
+                      if hasattr(lesson, "SKILL_LOADER")
+                      else lesson.load_skill("chinese-skill"))
+
+            assert registry["chinese-skill"]["description"] == "处理中文内容"
+            assert loaded == manifest
+
+
 def test_s07_exposes_only_base_tools_and_load_skill() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         lesson = load_lesson(Path(tmp))
