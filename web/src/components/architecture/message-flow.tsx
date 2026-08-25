@@ -53,7 +53,7 @@ export function MessageFlow() {
             initial={{ opacity: 0, scale: 0.6 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.25 }}
-            className={`flex shrink-0 items-center rounded-md px-2 py-1.5 ${step.color}`}
+            className={`flex shrink-0 items-center rounded-md px-1.5 py-1.5 ${step.color}`}
           >
             <span className="whitespace-nowrap font-mono text-[10px] font-medium text-white">
               {step.label}
