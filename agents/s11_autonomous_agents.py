@@ -43,6 +43,12 @@ import time
 import uuid
 from pathlib import Path
 
+try:
+    import readline
+    readline.parse_and_bind('set bind-tty-special-chars off')
+except ImportError:
+    pass
+
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
@@ -556,7 +562,8 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input("\033[36ms11 >> \033[0m")
+            # \001/\002 tell Readline the ANSI escapes have zero display width.
+            query = input("\001\033[36m\002s11 >> \001\033[0m\002")
         except (EOFError, KeyboardInterrupt):
             break
         if query.strip().lower() in ("q", "exit", ""):
