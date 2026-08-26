@@ -102,15 +102,12 @@ agent_loop(history)
 **PreToolUse / PostToolUse**、ツール実行の前後のフック。s03 の権限チェックロジックは PreToolUse フックに包まれ、さらにログフックと大出力リマインダーが追加される：
 
 ```python
-# PreToolUse: 権限チェック（s03 から引き継いだ matcher を含む）
+# PreToolUse: 権限チェック（s03 のロジック、ループからフックに移動）
 def permission_hook(block):
     if block.name == "bash":
-        command = block.input.get("command", "")
         for pattern in DENY_LIST:
-            if pattern in command:
+            if pattern in block.input.get("command", ""):
                 return "Permission denied by deny list"
-        if contains_destructive_command(command):
-            return "Potentially destructive command"
     if block.name in ("read_file", "write_file", "edit_file"):
         path = block.input.get("path", "")
         if not (WORKDIR / path).resolve().is_relative_to(WORKDIR):

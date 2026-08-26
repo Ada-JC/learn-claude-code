@@ -102,15 +102,12 @@ agent_loop(history)
 **PreToolUse / PostToolUse**, hooks before and after tool execution. s03's permission check logic is now wrapped as a PreToolUse hook, plus a logging hook and a large-output reminder:
 
 ```python
-# PreToolUse: permission check (including the matcher inherited from s03)
+# PreToolUse: permission check (s03 logic, moved from loop to hook)
 def permission_hook(block):
     if block.name == "bash":
-        command = block.input.get("command", "")
         for pattern in DENY_LIST:
-            if pattern in command:
+            if pattern in block.input.get("command", ""):
                 return "Permission denied by deny list"
-        if contains_destructive_command(command):
-            return "Potentially destructive command"
     if block.name in ("read_file", "write_file", "edit_file"):
         path = block.input.get("path", "")
         if not (WORKDIR / path).resolve().is_relative_to(WORKDIR):

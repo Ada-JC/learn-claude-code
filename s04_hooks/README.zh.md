@@ -102,15 +102,12 @@ agent_loop(history)
 **PreToolUse / PostToolUse**，工具执行前后的 hook。s03 的权限检查逻辑现在包装成 PreToolUse hook，再加一个日志 hook 和一个大输出提醒：
 
 ```python
-# PreToolUse: 权限检查（包含从 s03 沿用的 matcher）
+# PreToolUse: 权限检查（s03 的逻辑，从循环移到 hook）
 def permission_hook(block):
     if block.name == "bash":
-        command = block.input.get("command", "")
         for pattern in DENY_LIST:
-            if pattern in command:
+            if pattern in block.input.get("command", ""):
                 return "Permission denied by deny list"
-        if contains_destructive_command(command):
-            return "Potentially destructive command"
     if block.name in ("read_file", "write_file", "edit_file"):
         path = block.input.get("path", "")
         if not (WORKDIR / path).resolve().is_relative_to(WORKDIR):
