@@ -418,10 +418,6 @@ The terminal exposes the user request, Lead's proposal, task state, claims, sele
 
 ---
 
-## Inherited permission rule
-
-This chapter carries forward the permission hook from s04. It recognizes `rm` and `del` case-insensitively only as complete command words at the start of a command or after a shell separator (`;`, `&&`, `||`, `|`, `&`, parentheses, or a newline). It does not treat `model`, `delimiter`, or `echo del test.txt` as destructive.
-
 ## Try It
 
 ```sh

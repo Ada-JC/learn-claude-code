@@ -54,17 +54,39 @@ def check_deny_list(command: str) -> str | None:
     return None
 ```
 
-**ゲート 2**：ルールマッチング — 「いつユーザーに聞くべきか」を記述する。各ルールはツールとチェック条件を指定する。
+**ゲート 2**：ルールマッチング — 「いつユーザーに聞くべきか」を記述する。各ルールはツールとチェック条件を指定する。shell ルールは quoted separator を構文として扱わずに command を分割し、直接 command、`if`/`for` の本体、`cmd /c` や `sh -c` の payload など、実際に command が実行される位置を確認する。
+
+ここでの matcher は一般的な command 形式を説明するためのものであり、完全な shell parser や security sandbox ではない。
 
 ```python
-import re
+import shlex
 
-DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
-)
+SHELL_SEPARATORS = ";&|\n"
+DESTRUCTIVE_COMMANDS = {"rm", "del"}
+
+def shell_tokens(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=False,
+                        punctuation_chars=SHELL_SEPARATORS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
 
 def contains_destructive_command(command: str) -> bool:
-    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
+    try:
+        tokens = shell_tokens(command)
+    except ValueError:
+        return True
+
+    segment = []
+    for token in tokens:
+        if is_shell_separator(token):
+            if segment_has_destructive_command(segment):
+                return True
+            segment = []
+        else:
+            segment.append(token)
+    return segment_has_destructive_command(segment)
 
 PERMISSION_RULES = [
     {
@@ -152,7 +174,7 @@ python s03_permission/code.py
 2. `Delete the file test.txt`（bash + rm でゲート 2 が発動）
 3. `What files are in the current directory?`（読み取り専用、すべて通過）
 4. `Try to write a file to /etc/something`（作業ディレクトリ外への書き込みでゲート 2 が発動）
-5. Windows では `del test.txt` と `DEL test.txt` がゲート 2 を発動し、`model`、`delimiter`、`echo del test.txt` は発動しない。
+5. Windows では `del test.txt`、`DEL test.txt`、`if exist test.txt del test.txt` がゲート 2 を発動し、`model`、`delimiter`、`echo del test.txt`、`echo "safe; del test.txt"` は発動しない。
 
 観察のポイント：どの操作がそのまま通過するか？ どれに確認が必要か？ どれが即座に拒否されるか？
 

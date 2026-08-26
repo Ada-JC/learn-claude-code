@@ -54,17 +54,39 @@ def check_deny_list(command: str) -> str | None:
     return None
 ```
 
-**Gate 2**: Rule matching — describes "when to ask the user." Each rule specifies a tool and a check condition.
+**Gate 2**: Rule matching — describes "when to ask the user." Each rule specifies a tool and a check condition. The shell rule tokenizes commands without treating quoted separators as syntax, then checks executable positions such as direct commands, `if`/`for` bodies, and `cmd /c` or `sh -c` payloads.
+
+This is a teaching-level matcher for common command forms, not a complete shell parser or security sandbox.
 
 ```python
-import re
+import shlex
 
-DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
-)
+SHELL_SEPARATORS = ";&|\n"
+DESTRUCTIVE_COMMANDS = {"rm", "del"}
+
+def shell_tokens(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=False,
+                        punctuation_chars=SHELL_SEPARATORS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
 
 def contains_destructive_command(command: str) -> bool:
-    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
+    try:
+        tokens = shell_tokens(command)
+    except ValueError:
+        return True
+
+    segment = []
+    for token in tokens:
+        if is_shell_separator(token):
+            if segment_has_destructive_command(segment):
+                return True
+            segment = []
+        else:
+            segment.append(token)
+    return segment_has_destructive_command(segment)
 
 PERMISSION_RULES = [
     {
@@ -152,7 +174,7 @@ Try these prompts:
 2. `Delete the file test.txt` (bash + rm triggers Gate 2)
 3. `What files are in the current directory?` (read-only, all pass)
 4. `Try to write a file to /etc/something` (writing outside workspace triggers Gate 2)
-5. On Windows, `del test.txt` and `DEL test.txt` trigger Gate 2, while `model`, `delimiter`, and `echo del test.txt` do not.
+5. On Windows, `del test.txt`, `DEL test.txt`, and `if exist test.txt del test.txt` trigger Gate 2, while `model`, `delimiter`, `echo del test.txt`, and `echo "safe; del test.txt"` do not.
 
 What to watch for: Which operations pass through? Which need your confirmation? Which are denied outright?
 

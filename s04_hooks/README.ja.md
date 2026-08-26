@@ -102,18 +102,7 @@ agent_loop(history)
 **PreToolUse / PostToolUse**、ツール実行の前後のフック。s03 の権限チェックロジックは PreToolUse フックに包まれ、さらにログフックと大出力リマインダーが追加される：
 
 ```python
-import re
-
-DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
-)
-
-
-def contains_destructive_command(command: str) -> bool:
-    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
-
-
-# PreToolUse: 権限チェック（s03 のロジック、ループからフックに移動）
+# PreToolUse: 権限チェック（s03 から引き継いだ matcher を含む）
 def permission_hook(block):
     if block.name == "bash":
         command = block.input.get("command", "")
@@ -143,8 +132,6 @@ register_hook("PreToolUse", permission_hook)
 register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
-
-継承された shell rule は大文字小文字を区別せず、command の先頭または shell separator の直後にある完全な `rm`/`del` command word だけを検出する。`model`、`delimiter`、`echo del test.txt` は危険な command として扱わない。
 
 **Stop** はループが終了する直前に発火する。以下の hook は終了時の統計を出力する：
 

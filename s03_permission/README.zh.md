@@ -54,17 +54,39 @@ def check_deny_list(command: str) -> str | None:
     return None
 ```
 
-**闸门 2**负责规则匹配，用来描述"什么时候需要问用户"。每条规则指定工具和检查条件。
+**闸门 2**负责规则匹配，用来描述"什么时候需要问用户"。每条规则指定工具和检查条件。shell 规则会先拆分命令，但不把引号内的分隔符当成语法，再检查直接命令、`if`/`for` 主体以及 `cmd /c`、`sh -c` 等真正执行命令的位置。
+
+这里的 matcher 只用于讲解常见命令形式，并不是完整的 shell parser 或安全沙箱。
 
 ```python
-import re
+import shlex
 
-DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
-)
+SHELL_SEPARATORS = ";&|\n"
+DESTRUCTIVE_COMMANDS = {"rm", "del"}
+
+def shell_tokens(command: str) -> list[str]:
+    lexer = shlex.shlex(command, posix=False,
+                        punctuation_chars=SHELL_SEPARATORS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return list(lexer)
 
 def contains_destructive_command(command: str) -> bool:
-    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
+    try:
+        tokens = shell_tokens(command)
+    except ValueError:
+        return True
+
+    segment = []
+    for token in tokens:
+        if is_shell_separator(token):
+            if segment_has_destructive_command(segment):
+                return True
+            segment = []
+        else:
+            segment.append(token)
+    return segment_has_destructive_command(segment)
 
 PERMISSION_RULES = [
     {
@@ -152,7 +174,7 @@ python s03_permission/code.py
 2. `Delete the file test.txt`（bash + rm 会触发闸门 2）
 3. `What files are in the current directory?`（只读，全部通过）
 4. `Try to write a file to /etc/something`（写工作区外，触发闸门 2）
-5. 在 Windows 上，`del test.txt` 和 `DEL test.txt` 会触发闸门 2，而 `model`、`delimiter` 和 `echo del test.txt` 不会。
+5. 在 Windows 上，`del test.txt`、`DEL test.txt` 和 `if exist test.txt del test.txt` 会触发闸门 2，而 `model`、`delimiter`、`echo del test.txt` 和 `echo "safe; del test.txt"` 不会。
 
 观察重点：哪些操作直接通过？哪些需要你确认？哪些被直接拒绝？
 

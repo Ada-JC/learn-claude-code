@@ -102,18 +102,7 @@ agent_loop(history)
 **PreToolUse / PostToolUse**, hooks before and after tool execution. s03's permission check logic is now wrapped as a PreToolUse hook, plus a logging hook and a large-output reminder:
 
 ```python
-import re
-
-DESTRUCTIVE_COMMAND_WORD = re.compile(
-    r"(?i)(?:^|[;&|()\n])\s*(?:rm|del)(?=\s|$|[;&|()])"
-)
-
-
-def contains_destructive_command(command: str) -> bool:
-    return bool(DESTRUCTIVE_COMMAND_WORD.search(command))
-
-
-# PreToolUse: permission check (s03 logic, moved from loop to hook)
+# PreToolUse: permission check (including the matcher inherited from s03)
 def permission_hook(block):
     if block.name == "bash":
         command = block.input.get("command", "")
@@ -143,8 +132,6 @@ register_hook("PreToolUse", permission_hook)
 register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
-
-The inherited shell rule is case-insensitive and matches a complete `rm` or `del` command word only at the start of a command or after a shell separator. It does not match `model`, `delimiter`, or `echo del test.txt`.
 
 **Stop** triggers when the loop is about to exit. The following hook prints a cleanup summary:
 

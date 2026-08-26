@@ -222,10 +222,6 @@ python s17_goal_loop/code.py
 python s17_goal_loop/code.py "/goal python -m pytest 退出码为 0"
 ```
 
-## 继承的权限规则
-
-本章沿用 s04 的权限 hook：只在命令开头或 shell 分隔符（`;`、`&&`、`||`、`|`、`&`、括号或换行）之后，按大小写不敏感方式识别完整的 `rm`/`del` 命令词。`model`、`delimiter` 和 `echo del test.txt` 不会被当成危险命令。
-
 ## 与 s16 的关系
 
 s16 解决“一批工作怎样执行”：哪些步骤并行，结果怎样验证，失败后怎样恢复。
