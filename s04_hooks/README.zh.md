@@ -67,9 +67,16 @@ HOOKS = {
 }
 
 def register_hook(event: str, callback):
+'''callback：要注册的函数，例如 permission_hook'''
+
     HOOKS[event].append(callback)
+'''从 HOOKS 中取出该事件的函数列表，并把新 Hook 加到末尾。'''
 
 def trigger_hooks(event: str, *args):
+'''定义触发 Hook 的函数。
+- event：要触发的事件，例如 "PreToolUse"。
+- *args：接收任意数量的位置参数。
+'''
     for callback in HOOKS[event]:
         result = callback(*args)
         if result is not None:   # 返回值 ≠ None → hook 说"停"
