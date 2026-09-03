@@ -79,7 +79,12 @@ def trigger_hooks(event: str, *args):
 '''
     for callback in HOOKS[event]:
         result = callback(*args)
+'''*args 在函数定义中表示“收集参数”；在函数调用中表示“展开参数”。'''
         if result is not None:   # 返回值 ≠ None → hook 说"停"
+'''这是 Hook 的“短路”或“中断”规则。
+- Hook 返回 None：表示“没问题，继续执行下一个 Hook”。
+- Hook 返回任何非 None 的值：表示“停止”，立刻结束 trigger_hooks，并把这个值交还给调用方。
+'''
             return result
     return None
 ```
