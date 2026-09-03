@@ -107,8 +107,11 @@ register_hook("UserPromptSubmit", context_inject_hook)
 ```python
 query = input("s04 >> ")
 trigger_hooks("UserPromptSubmit", query)   # ← 进入 LLM 之前
+'''触发名为 "UserPromptSubmit" 的全部 Hook，并把用户输入 query 传给它们。'''
+
 history.append({"role": "user", "content": query})
 agent_loop(history)
+'''调用 Agent 的主循环，并把更新后的对话历史传进去。'''
 ```
 
 **PreToolUse / PostToolUse**，工具执行前后的 hook。s03 的权限检查逻辑现在包装成 PreToolUse hook，再加一个日志 hook 和一个大输出提醒：
