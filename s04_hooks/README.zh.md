@@ -146,6 +146,7 @@ register_hook("PostToolUse", large_output_hook)
 ```
 
 **Stop** 在循环即将退出时触发。以下 hook 打印收尾统计：
+<img width="1081" height="325" alt="image" src="https://github.com/user-attachments/assets/5ea47f0b-dc77-4f7f-acf4-fb2df4afa5c1" />
 
 ```python
 def summary_hook(messages: list) -> str | None:
