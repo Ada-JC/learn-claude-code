@@ -161,6 +161,7 @@ register_hook("Stop", summary_hook)
 ```
 
 在 agent_loop 中，退出前触发：
+<img width="1362" height="705" alt="image" src="https://github.com/user-attachments/assets/7d68d70e-fff0-4171-bf5e-2ac9996eb4f5" />
 
 ```python
 tool_calls = [
